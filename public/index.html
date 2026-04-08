@@ -3,756 +3,278 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Pixel Battle</title>
+  <title>⬛ Pixel Battle</title>
+  <!-- Используем надежный CDN -->
   <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
   <style>
+    /* --- MINIMAL CSS FOR STABILITY --- */
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#0d0d14;
-      --panel:rgba(13,13,22,0.95);
-      --border:rgba(255,255,255,0.10);
-      --accent:#7c6ff7;
-      --accent2:#9d98f9;
-      --ok:#6ff7a0;
-      --err:#f76f6f;
-      --warn:#f7c86f;
-      --txt:#e8e8f0;
-      --dim:#6a6a7c;
-    }
-    html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
-      font-family:'Segoe UI',system-ui,sans-serif;color:var(--txt);user-select:none}
-
-    /* ── canvas ── */
-    #cv{
-      position:fixed;inset:0;
-      display:block;
-      image-rendering:pixelated;
-      image-rendering:crisp-edges;
-      cursor:crosshair;
-    }
-
-    /* ── top bar ── */
-    #bar{
-      position:fixed;top:0;left:0;right:0;height:48px;
-      background:var(--panel);border-bottom:1px solid var(--border);
-      backdrop-filter:blur(14px);
-      display:flex;align-items:center;gap:12px;padding:0 14px;
-      z-index:100;pointer-events:none;
-    }
-    #bar>*{pointer-events:auto}
-    #logo{font-size:.95rem;font-weight:800;letter-spacing:.08em;color:var(--accent2)}
-    #logo span{color:#fff}
-    .pill{
-      display:flex;align-items:center;gap:4px;
-      background:rgba(255,255,255,.04);border:1px solid var(--border);
-      border-radius:5px;padding:2px 9px;font-size:.74rem;
-      font-family:'Courier New',monospace;color:var(--dim);
-    }
-    .pill b{color:var(--txt);font-weight:600}
-    #sp{flex:1}
-    #ol{display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--dim)}
-    .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);
-      animation:dp 2s ease-in-out infinite}
-    @keyframes dp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
-
-    /* ── bottom panel ── */
-    #panel{
-      position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
-      background:var(--panel);border:1px solid var(--border);
-      border-radius:16px;backdrop-filter:blur(18px);
-      padding:10px 16px;display:flex;align-items:center;gap:12px;
-      z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.6);
-      flex-wrap:nowrap;
-    }
-    #palette{display:flex;gap:5px;flex-wrap:wrap;max-width:252px}
-    .sw{
-      width:24px;height:24px;border-radius:5px;cursor:pointer;
-      border:2px solid transparent;flex-shrink:0;
-      transition:transform .1s,border-color .1s,box-shadow .1s;
-    }
-    .sw:hover{transform:scale(1.18)}
-    .sw.on{border-color:#fff;box-shadow:0 0 0 2px var(--accent);transform:scale(1.22)}
-    .div{width:1px;height:36px;background:var(--border);flex-shrink:0}
-    #cpw{display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0}
-    #cp{width:32px;height:32px;border:2px solid var(--border);border-radius:6px;
-      cursor:pointer;background:none;padding:2px}
-    #cp::-webkit-color-swatch-wrapper{padding:0}
-    #cp::-webkit-color-swatch{border:none;border-radius:3px}
-    #hl{font-size:.60rem;font-family:monospace;color:var(--dim)}
-    #pbtn{
-      padding:8px 20px;background:var(--accent);color:#fff;
-      border:none;border-radius:8px;font-size:.86rem;font-weight:700;
-      cursor:pointer;letter-spacing:.03em;white-space:nowrap;flex-shrink:0;
-      transition:background .15s,transform .1s,opacity .15s;
-    }
-    #pbtn:hover:not(:disabled){background:var(--accent2);transform:scale(1.04)}
-    #pbtn:active:not(:disabled){transform:scale(.96)}
-    #pbtn:disabled{background:#2a2a38;color:var(--dim);cursor:not-allowed}
-
-    /* selected colour preview next to button */
-    #selbox{
-      width:28px;height:28px;border-radius:6px;flex-shrink:0;
-      border:2px solid rgba(255,255,255,.25);
-    }
-
-    /* ── cooldown ── */
-    #cd{
-      position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
-      display:flex;flex-direction:column;align-items:center;gap:4px;
-      z-index:101;opacity:0;pointer-events:none;
-      transition:opacity .2s;
-    }
-    #cd.on{opacity:1}
-    #cdr{position:relative;width:56px;height:56px}
-    #cdr svg{width:56px;height:56px;transform:rotate(-90deg)}
-    #cdr .tr{fill:none;stroke:rgba(255,255,255,.07);stroke-width:5}
-    #cdr .ar{
-      fill:none;stroke:var(--accent);stroke-width:5;stroke-linecap:round;
-      /* r=23 → C=2π×23≈144.51 */
-      stroke-dasharray:144.51;stroke-dashoffset:144.51;
-    }
-    #cdn{position:absolute;inset:0;display:flex;align-items:center;
-      justify-content:center;font-size:.84rem;font-weight:700;color:var(--accent2)}
-    #cdl{font-size:.65rem;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
-
-    /* ── minimap ── */
-    #mm{
-      position:fixed;bottom:16px;right:16px;z-index:100;
-      border:1px solid var(--border);border-radius:7px;overflow:hidden;
-      box-shadow:0 8px 32px rgba(0,0,0,.6);cursor:crosshair;background:#111;
-    }
-    #mmc{display:block;width:120px;height:120px;image-rendering:pixelated}
-
-    /* ── connection ── */
-    #cb{
-      position:fixed;top:56px;left:14px;font-size:.68rem;
-      padding:3px 9px;border-radius:20px;z-index:100;border:1px solid transparent;
-      transition:all .3s;
-    }
-    #cb.ok {background:rgba(111,247,160,.1);border-color:var(--ok);color:var(--ok)}
-    #cb.bad{background:rgba(247,111,111,.1);border-color:var(--err);color:var(--err)}
-    #cb.mid{background:rgba(247,200,111,.1);border-color:var(--warn);color:var(--warn)}
-
-    /* ── toasts ── */
-    #tc{position:fixed;top:56px;right:14px;display:flex;flex-direction:column;
-      gap:6px;z-index:200;pointer-events:none}
-    .tt{padding:7px 13px;border-radius:6px;font-size:.78rem;
-      background:var(--panel);border:1px solid var(--border);
-      backdrop-filter:blur(10px);max-width:240px;
-      animation:tin .2s ease forwards}
-    .tt.ok {border-color:var(--ok); color:var(--ok)}
-    .tt.err{border-color:var(--err);color:var(--err)}
-    .tt.inf{border-color:var(--accent);color:var(--accent2)}
-    @keyframes tin{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
-
-    /* ── loading ── */
-    #ld{position:fixed;inset:0;background:var(--bg);
-      display:flex;flex-direction:column;align-items:center;
-      justify-content:center;gap:16px;z-index:999;transition:opacity .4s}
-    #ld.out{opacity:0;pointer-events:none}
-    #ld h2{font-size:1.6rem;color:var(--accent2);letter-spacing:.1em}
-    #lbw{width:260px;height:4px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden}
-    #lb{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));
-      border-radius:2px;transition:width .3s ease}
-    #ls{font-size:.75rem;color:var(--dim)}
-
-    /* ── hover ghost (the square under cursor) ── */
-    #gh{
-      position:fixed;pointer-events:none;z-index:99;
-      border:1.5px solid rgba(255,255,255,.8);
-      box-shadow:0 0 0 1px rgba(0,0,0,.5);
-      display:none;
-    }
-
-    /* ── help ── */
-    #hbtn{
-      position:fixed;top:56px;right:14px;width:28px;height:28px;
-      border-radius:50%;background:var(--panel);border:1px solid var(--border);
-      color:var(--dim);font-size:.8rem;cursor:pointer;
-      display:flex;align-items:center;justify-content:center;z-index:100;
-    }
-    #hp{
-      position:fixed;top:92px;right:14px;background:var(--panel);
-      border:1px solid var(--border);border-radius:9px;
-      backdrop-filter:blur(14px);padding:12px 15px;font-size:.74rem;
-      color:var(--dim);line-height:2;z-index:100;
-      display:none;box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:190px;
-    }
-    #hp.on{display:block}
-    #hp strong{color:var(--txt);display:inline-block;min-width:100px}
+    :root{--bg:#0d0d14;--panel:rgba(13,13,22,0.95);--border:rgba(255,255,255,0.10);--accent:#7c6ff7;--txt:#e8e8f0;--dim:#a0a0b0}
+    body{margin:0;height:100vh;overflow:hidden;font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--txt)}
+    #canvas{position:absolute;top:0;left:0;display:block;cursor:crosshair}
+    #hud{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--border);padding:10px 20px;border-radius:16px;z-index:100}
+    .btn{padding:8px 20px;background:var(--accent);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold}
+    #status{font-size:0.8rem;color:var(--dim);margin-right:10px}
   </style>
 </head>
 <body>
 
-<!-- loading -->
-<div id="ld">
-  <h2>⬛ PIXEL BATTLE</h2>
-  <div id="lbw"><div id="lb"></div></div>
-  <div id="ls">Connecting…</div>
+<!-- HUD UI -->
+<div id="hud">
+  <span id="status">Loading...</span>
+  <button class="btn" id="placeBtn">Place Pixel</button>
 </div>
 
-<!-- top bar -->
-<div id="bar">
-  <div id="logo">⬛ PIXEL <span>BATTLE</span></div>
-  <div class="pill">X <b id="hx">—</b></div>
-  <div class="pill">Y <b id="hy">—</b></div>
-  <div class="pill">Zoom <b id="hz">100%</b></div>
-  <div id="sp"></div>
-  <div id="ol"><div class="dot"></div><span id="hon">—</span> online</div>
-</div>
-
-<!-- canvas -->
-<canvas id="cv"></canvas>
-
-<!-- hover ghost -->
-<div id="gh"></div>
-
-<!-- cooldown ring -->
-<div id="cd">
-  <div id="cdr">
-    <svg viewBox="0 0 56 56">
-      <circle class="tr" cx="28" cy="28" r="23"/>
-      <circle class="ar" cx="28" cy="28" r="23" id="cdarc"/>
-    </svg>
-    <div id="cdn">3.0</div>
-  </div>
-  <div id="cdl">cooldown</div>
-</div>
-
-<!-- bottom panel -->
-<div id="panel">
-  <div id="palette"></div>
-  <div class="div"></div>
-  <div id="cpw">
-    <input type="color" id="cp" value="#7c6ff7"/>
-    <div id="hl">#7c6ff7</div>
-  </div>
-  <div class="div"></div>
-  <div id="selbox"></div>
-  <button id="pbtn">Place Pixel</button>
-</div>
-
-<!-- minimap -->
-<div id="mm"><canvas id="mmc" width="120" height="120"></canvas></div>
-
-<!-- connection -->
-<div id="cb" class="bad">● Disconnected</div>
-
-<!-- toasts -->
-<div id="tc"></div>
-
-<!-- help -->
-<button id="hbtn">?</button>
-<div id="hp">
-  <strong>Left click</strong>Place pixel<br>
-  <strong>Right drag</strong>Pan<br>
-  <strong>Scroll</strong>Zoom<br>
-  <strong>Space+drag</strong>Pan<br>
-  <strong>R</strong>Reset view<br>
-  <strong>G</strong>Toggle grid<br>
-  <strong>+/−</strong>Zoom keys<br>
-</div>
+<!-- Canvas -->
+<canvas id="canvas"></canvas>
 
 <script>
 'use strict';
+
 /* ═══════════════════════════════════════════════════════════
-   PIXEL BATTLE — все баги исправлены
-   Главное:
-   • Один левый клик = сразу ставит пиксель (если нет кулдауна)
-   • Кулдаун точно 3 секунды (используем setInterval, не rAF)
-   • Zoom работает от колёсика мыши с правильной точкой фокуса
-   • Canvas никогда не ресайзится внутри render()
-   • Панорамирование только правой кнопкой / пробелом
+   ПРАВИЛА РАБОТЫ:
+   1. Нажми F12 (Консоль), если что-то не работает.
+   2. Жестко обновись Ctrl+Shift+R на обоих ПК (очистка кэша).
+   3. Убедись, что нет блокировщиков рекламы на втором ПК.
 ═══════════════════════════════════════════════════════════ */
 
-// ─── constants ────────────────────────────────────────────
-const BSIZE   = 4096;
-const CDms    = 3000;          // cooldown milliseconds
-const MINZOOM = 0.025;
-const MAXZOOM = 48;
-const ZF      = 0.15;          // zoom factor per wheel notch
-const GRID_Z  = 6;             // show grid when zoom >= this
-const MM      = 120;           // minimap size px
-const CDCIRC  = 2*Math.PI*23; // ≈ 144.51  (r=23)
+const CONFIG = {
+  BOARD_SIZE: 4096,
+  CD_MS: 3000,
+  ZOOM_SPEED: 0.1,
+};
 
-// ─── palette ──────────────────────────────────────────────
-const PAL=[
-  '#ffffff','#c0c0c0','#808080','#404040','#202020','#000000',
-  '#ffa7d1','#e50000','#ff6900','#ffa500','#ffe600','#a06a42',
-  '#7eed56','#00cc00','#00d3dd','#2450a4','#3f00ff','#811e9f',
-  '#cf6ee4','#ff99aa','#00cc78','#7c6ff7','#46d160','#25c2e3',
-];
+// --- СОСТОЯНИЕ ---
+let ready = false;
+let camZoom = 1, camPanX = 0, camPanY = 0;
+let lastMouse = { x:0, y:0 };
+let onCooldown = false;
+let cdTimer = null;
+let selectedPx = {x:-1, y:-1};
 
-// ─── DOM ──────────────────────────────────────────────────
-const cv    = document.getElementById('cv');
-const ctx   = cv.getContext('2d',{alpha:false});
-const mmc   = document.getElementById('mmc');
-const mmx   = mmc.getContext('2d');
-const ldDiv = document.getElementById('ld');
-const lb    = document.getElementById('lb');
-const ls    = document.getElementById('ls');
-const hx    = document.getElementById('hx');
-const hy    = document.getElementById('hy');
-const hz    = document.getElementById('hz');
-const hon   = document.getElementById('hon');
-const pbtn  = document.getElementById('pbtn');
-const cp    = document.getElementById('cp');
-const hl    = document.getElementById('hl');
-const selbox= document.getElementById('selbox');
-const cdEl  = document.getElementById('cd');
-const cdArc = document.getElementById('cdarc');
-const cdNum = document.getElementById('cdn');
-const cb    = document.getElementById('cb');
-const gh    = document.getElementById('gh');
-const hbtn  = document.getElementById('hbtn');
-const hpEl  = document.getElementById('hp');
+// --- DOM ---
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const placeBtn = document.getElementById('placeBtn');
+const statusText = document.getElementById('status');
 
-// ─── camera ───────────────────────────────────────────────
-const cam={x:0,y:0,z:1}; // panX, panY, zoom
-
-function s2b(sx,sy){return{x:(sx-cam.x)/cam.z, y:(sy-cam.y)/cam.z}}
-function b2s(bx,by){return{x:bx*cam.z+cam.x,  y:by*cam.z+cam.y}}
-
-function clamp(){
-  const W=cv.width,H=cv.height,M=60,bw=BSIZE*cam.z,bh=BSIZE*cam.z;
-  cam.x=Math.min(cam.x, W-M);  cam.x=Math.max(cam.x,-bw+M);
-  cam.y=Math.min(cam.y, H-M);  cam.y=Math.max(cam.y,-bh+M);
+// --- CANVAS INIT ---
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  draw();
 }
+window.addEventListener('resize', resize);
+resize();
 
-function zoomAt(sx,sy,dir){
-  const f=dir>0?(1+ZF):(1/(1+ZF));
-  const nz=Math.min(MAXZOOM,Math.max(MINZOOM,cam.z*f));
-  if(nz===cam.z)return;
-  // keep board point under cursor fixed
-  const bx=(sx-cam.x)/cam.z, by=(sy-cam.y)/cam.z;
-  cam.x=sx-bx*nz;
-  cam.y=sy-by*nz;
-  cam.z=nz;
+// --- CAMERA HELPERS ---
+function sToB(sx, sy) {
+  return {
+    x: (sx - camPanX) / camZoom,
+    y: (sy - camPanY) / camZoom
+  };
+}
+function bToS(bx, by) {
+  return {
+    x: bx * camZoom + camPanX,
+    y: by * camZoom + camPanY
+  };
+}
+function clamp() {
+  const W = canvas.width, H = canvas.height;
+  const BW = CONFIG.BOARD_SIZE * camZoom;
+  const BH = CONFIG.BOARD_SIZE * camZoom;
+  camPanX = Math.min(camPanX, W);
+  camPanX = Math.max(camPanX, -BW);
+  camPanY = Math.min(camPanY, H);
+  camPanY = Math.max(camPanY, -BH);
+}
+function zoomAt(sx, sy, dir) {
+  const f = dir > 0 ? 1 + CONFIG.ZOOM_SPEED : 1 - CONFIG.ZOOM_SPEED;
+  const nz = Math.min(50, Math.max(0.05, camZoom * f));
+  const bx = (sx - camPanX) / camZoom;
+  const by = (sy - camPanY) / camZoom;
+  camPanX = sx - bx * nz;
+  camPanY = sy - by * nz;
+  camZoom = nz;
   clamp();
-  hz.textContent=(cam.z*100).toFixed(0)+'%';
 }
 
-function resetView(){
-  const W=cv.width,H=cv.height,mg=24;
-  cam.z=Math.min((W-mg*2)/BSIZE,(H-mg*2)/BSIZE);
-  cam.x=(W-BSIZE*cam.z)/2;
-  cam.y=(H-BSIZE*cam.z)/2;
-  hz.textContent=(cam.z*100).toFixed(0)+'%';
-}
+// --- OFFSCREEN BUFFER ---
+let bCanvas, bCtx, bRGB;
 
-// ─── board buffer ─────────────────────────────────────────
-let bOC,bCtx,bRGB; // offscreen canvas + rgb array
-
-function initBoard(){
-  bOC = (typeof OffscreenCanvas!=='undefined')
-    ? new OffscreenCanvas(BSIZE,BSIZE)
-    : Object.assign(document.createElement('canvas'),{width:BSIZE,height:BSIZE});
-  bCtx=bOC.getContext('2d',{alpha:false});
-  bCtx.fillStyle='#ffffff';
-  bCtx.fillRect(0,0,BSIZE,BSIZE);
-  bRGB=new Uint8Array(BSIZE*BSIZE*3).fill(255);
-}
-
-function px1(x,y,r,g,b){
-  // write one pixel
-  if(x<0||x>=BSIZE||y<0||y>=BSIZE)return;
-  const i=(y*BSIZE+x)*3;
-  bRGB[i]=r;bRGB[i+1]=g;bRGB[i+2]=b;
-  const id=new ImageData(new Uint8ClampedArray([r,g,b,255]),1,1);
-  bCtx.putImageData(id,x,y);
-  mmDirty=true;
-}
-
-function loadFull(rgb){
-  bRGB=rgb;
-  const id=bCtx.createImageData(BSIZE,BSIZE);
-  const d=id.data;
-  for(let i=0,n=BSIZE*BSIZE;i<n;i++){
-    d[i*4]=rgb[i*3]; d[i*4+1]=rgb[i*3+1]; d[i*4+2]=rgb[i*3+2]; d[i*4+3]=255;
+function initBoard() {
+  if (typeof OffscreenCanvas === 'undefined') {
+    bCanvas = document.createElement('canvas');
+    bCanvas.width = bCanvas.height = CONFIG.BOARD_SIZE;
+  } else {
+    bCanvas = new OffscreenCanvas(CONFIG.BOARD_SIZE, CONFIG.BOARD_SIZE);
   }
-  bCtx.putImageData(id,0,0);
-  mmDirty=true;
+  bCtx = bCanvas.getContext('2d', { alpha: false });
+  bCtx.fillStyle = '#ffffff';
+  bCtx.fillRect(0, 0, CONFIG.BOARD_SIZE, CONFIG.BOARD_SIZE);
+  bRGB = new Uint8Array(CONFIG.BOARD_SIZE * CONFIG.BOARD_SIZE * 3).fill(255);
 }
 
-// ─── app state ────────────────────────────────────────────
-let ready=false;
-let showGrid=false;
-let mmDirty=true;
-let curColor='#7c6ff7';
-let onCD=false;      // are we on cooldown?
-let cdEnd=0;         // timestamp when cooldown ends
-let cdTick=null;     // setInterval handle for cooldown UI
-
-// panning
-let panning=false,spaceDown=false,lmx=0,lmy=0;
-
-// ─── colour ───────────────────────────────────────────────
-function setColor(h){
-  curColor=h;
-  hl.textContent=h;
-  cp.value=h;
-  selbox.style.background=h;
-  gh.style.background=h;
-  document.querySelectorAll('.sw').forEach(s=>s.classList.toggle('on',s.dataset.c===h));
+function writePixel(x, y, r, g, b) {
+  if (x < 0 || x >= CONFIG.BOARD_SIZE || y < 0 || y >= CONFIG.BOARD_SIZE) return;
+  const idx = (y * CONFIG.BOARD_SIZE + x) * 3;
+  bRGB[idx] = r; bRGB[idx+1] = g; bRGB[idx+2] = b;
+  
+  // Рисуем на оффскрин буфере
+  const img = bCtx.createImageData(1, 1);
+  img.data[0]=r; img.data[1]=g; img.data[2]=b; img.data[3]=255;
+  bCtx.putImageData(img, x, y);
+  
+  draw(); // Перерисовываем на main canvas
 }
 
-function buildPalette(){
-  const c=document.getElementById('palette');
-  PAL.forEach(col=>{
-    const s=document.createElement('div');
-    s.className='sw';s.style.background=col;s.dataset.c=col;s.title=col;
-    s.addEventListener('click',()=>setColor(col));
-    c.appendChild(s);
+// --- DRAW LOOP ---
+let rafPending = false;
+function draw() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.setTransform(camZoom, 0, 0, camZoom, camPanX, camPanY);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bCanvas, 0, 0);
+    ctx.restore();
   });
 }
 
-cp.addEventListener('input',()=>{
-  setColor(cp.value);
-  document.querySelectorAll('.sw').forEach(s=>s.classList.remove('on'));
+// --- SOCKET.IO SETUP ---
+const socket = io({ transports: ['websocket', 'polling'] });
+
+socket.on('connect', () => {
+  console.log('[Socket] Connected ✅');
+  statusText.textContent = 'Connected';
+  statusText.style.color = '#fff';
+});
+socket.on('disconnect', () => {
+  console.log('[Socket] Disconnected ❌');
+  statusText.textContent = 'Disconnected';
+  statusText.style.color = 'red';
+});
+socket.on('error', (err) => {
+  console.error('[Socket Error]', err);
+  statusText.textContent = 'Error!';
 });
 
-// ─── render ───────────────────────────────────────────────
-let rafPending=false;
-function sched(){if(!rafPending){rafPending=true;requestAnimationFrame(render)}}
-
-function render(){
-  rafPending=false;
-  const W=cv.width,H=cv.height;
-
-  // background
-  ctx.fillStyle='#1a1a26';
-  ctx.fillRect(0,0,W,H);
-
-  if(!ready)return;
-
-  // camera transform
-  ctx.save();
-  ctx.setTransform(cam.z,0,0,cam.z,cam.x,cam.y);
-  ctx.imageSmoothingEnabled=false;
-  ctx.drawImage(bOC,0,0);
-
-  // grid (in board-space, 1 unit = 1 board pixel)
-  if(showGrid && cam.z>=GRID_Z){
-    const x0=Math.max(0,Math.floor(-cam.x/cam.z));
-    const y0=Math.max(0,Math.floor(-cam.y/cam.z));
-    const x1=Math.min(BSIZE,Math.ceil((W-cam.x)/cam.z));
-    const y1=Math.min(BSIZE,Math.ceil((H-cam.y)/cam.z));
-    ctx.beginPath();
-    ctx.strokeStyle='rgba(0,0,0,0.2)';
-    ctx.lineWidth=1/cam.z;
-    for(let x=x0;x<=x1;x++){ctx.moveTo(x,y0);ctx.lineTo(x,y1)}
-    for(let y=y0;y<=y1;y++){ctx.moveTo(x0,y);ctx.lineTo(x1,y)}
-    ctx.stroke();
-  }
-
-  ctx.restore();
-
-  // minimap
-  if(mmDirty){drawMM();mmDirty=false}
-  drawMMvp(W,H);
-}
-
-// ─── minimap ──────────────────────────────────────────────
-function drawMM(){
-  mmx.imageSmoothingEnabled=false;
-  mmx.drawImage(bOC,0,0,MM,MM);
-}
-function drawMMvp(W,H){
-  const sc=MM/BSIZE;
-  const vx0=(-cam.x)/cam.z, vy0=(-cam.y)/cam.z;
-  const vx1=(W-cam.x)/cam.z, vy1=(H-cam.y)/cam.z;
-  const rx=(Math.max(0,vx0))*sc,  ry=(Math.max(0,vy0))*sc;
-  const rw=(Math.min(BSIZE,vx1)-Math.max(0,vx0))*sc;
-  const rh=(Math.min(BSIZE,vy1)-Math.max(0,vy0))*sc;
-  mmx.imageSmoothingEnabled=false;
-  mmx.drawImage(bOC,0,0,MM,MM);
-  mmx.strokeStyle='rgba(255,210,40,.9)';
-  mmx.lineWidth=1.5;
-  mmx.strokeRect(rx,ry,Math.max(2,rw),Math.max(2,rh));
-}
-document.getElementById('mm').addEventListener('click',e=>{
-  const r=mmc.getBoundingClientRect();
-  const bx=(e.clientX-r.left)*(BSIZE/MM);
-  const by=(e.clientY-r.top)*(BSIZE/MM);
-  cam.x=cv.width/2-bx*cam.z;
-  cam.y=cv.height/2-by*cam.z;
-  clamp();sched();
+// --- MESSAGE HANDLERS ---
+socket.on('board:meta', () => {
+  initBoard();
+  statusText.textContent = 'Downloading Board...';
 });
 
-// ─── cooldown ─────────────────────────────────────────────
-/*
-  FIX: используем setInterval с 50мс вместо requestAnimationFrame.
-  requestAnimationFrame вызывается ~60 раз/сек и при множественных
-  вызовах startCooldown накапливал незакрытые rAF-петли.
-  setInterval чистится через clearInterval — надёжно.
-*/
-function startCooldown(ms){
-  // если уже идёт кулдаун — просто обновляем время
-  if(cdTick) clearInterval(cdTick);
-
-  onCD=true;
-  cdEnd=Date.now()+ms;
-  pbtn.disabled=true;
-  cdEl.classList.add('on');
-
-  function tick(){
-    const rem=cdEnd-Date.now();
-    if(rem<=0){
-      clearInterval(cdTick);cdTick=null;
-      onCD=false;
-      pbtn.disabled=false;
-      cdEl.classList.remove('on');
-      cdArc.style.strokeDashoffset=CDCIRC;
-      cdNum.textContent='0.0';
-      toast('Ready! Click to place 🎨','ok',1500);
-      return;
+socket.on('board:load_via_rest', async ({ url }) => {
+  try {
+    const res = await fetch(url);
+    const buf = await res.arrayBuffer();
+    statusText.textContent = 'Decompressing...';
+    const rgb = pako.inflate(new Uint8Array(buf));
+    const id = bCtx.createImageData(CONFIG.BOARD_SIZE, CONFIG.BOARD_SIZE);
+    for(let i=0; i<rgb.length; i+=3) {
+      id.data[i*4]=rgb[i]; id.data[i*4+1]=rgb[i+1]; id.data[i*4+2]=rgb[i+2]; id.data[i*4+3]=255;
     }
-    const frac=rem/CDms;
-    // offset=0 → full circle, offset=CDCIRC → empty
-    cdArc.style.strokeDashoffset=(CDCIRC*(1-frac)).toFixed(3);
-    cdNum.textContent=(rem/1000).toFixed(1);
-  }
-  tick(); // immediate first update
-  cdTick=setInterval(tick,50);
-}
-
-// ─── place pixel ──────────────────────────────────────────
-function hexRGB(h){
-  const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h);
-  return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:{r:255,g:255,b:255};
-}
-
-/*
-  FIX: placeAt принимает уже вычисленные координаты доски.
-  Вызывается напрямую из mousedown — никаких промежуточных
-  состояний «выбрать потом нажать кнопку».
-*/
-function placeAt(bx,by){
-  if(!ready)return;
-  if(onCD){toast(`Cooldown — ${((cdEnd-Date.now())/1000).toFixed(1)}s`,'err',900);return;}
-  if(bx<0||bx>=BSIZE||by<0||by>=BSIZE)return;
-  const {r,g,b}=hexRGB(curColor);
-  socket.emit('pixel:place',{x:bx,y:by,r,g,b});
-}
-
-pbtn.addEventListener('click',()=>{
-  // «Place Pixel» кнопка — ставит пиксель туда, где мышь сейчас
-  placeAt(Math.floor(lastBX),Math.floor(lastBY));
-});
-
-// ─── input ────────────────────────────────────────────────
-let lastBX=0,lastBY=0; // current board coords of mouse
-
-// ── wheel = zoom ──
-cv.addEventListener('wheel',e=>{
-  e.preventDefault();
-  zoomAt(e.clientX,e.clientY,e.deltaY<0?1:-1);
-  sched();
-},{passive:false});
-
-// ── mousedown ──
-/*
-  FIX:
-  • Левая кнопка (button=0) → СРАЗУ ставит пиксель
-  • Правая (button=2) или пробел → панорамирование
-  Нет конфликта между «выбором» и «постановкой».
-*/
-cv.addEventListener('mousedown',e=>{
-  if(e.button===2||e.button===1||spaceDown){
-    e.preventDefault();
-    panning=true;lmx=e.clientX;lmy=e.clientY;
-    cv.style.cursor='grabbing';
-    return;
-  }
-  if(e.button===0){
-    e.preventDefault();
-    // вычисляем координаты доски прямо здесь
-    const b=s2b(e.clientX,e.clientY);
-    const bx=Math.floor(b.x), by=Math.floor(b.y);
-    placeAt(bx,by);
-  }
-});
-
-// ── mousemove ──
-window.addEventListener('mousemove',e=>{
-  if(panning){
-    cam.x+=e.clientX-lmx; cam.y+=e.clientY-lmy;
-    lmx=e.clientX; lmy=e.clientY;
-    clamp(); sched();
-    return; // не обновляем ghost во время панорамирования
-  }
-
-  const b=s2b(e.clientX,e.clientY);
-  const bx=Math.floor(b.x), by=Math.floor(b.y);
-  lastBX=b.x; lastBY=b.y;
-
-  const inside=bx>=0&&bx<BSIZE&&by>=0&&by<BSIZE;
-  hx.textContent=inside?bx:'—';
-  hy.textContent=inside?by:'—';
-
-  if(inside){
-    // ghost квадрат — точно совпадает с пикселем доски на экране
-    const tl=b2s(bx,by);
-    const sz=Math.max(1,cam.z); // размер одного пикселя на экране
-    gh.style.display='block';
-    gh.style.left  =tl.x+'px';
-    gh.style.top   =tl.y+'px';
-    gh.style.width =sz+'px';
-    gh.style.height=sz+'px';
-  }else{
-    gh.style.display='none';
-  }
-});
-
-// ── mouseup ──
-window.addEventListener('mouseup',()=>{
-  if(panning){panning=false;cv.style.cursor=spaceDown?'grab':'crosshair';}
-});
-
-// предотвращаем контекстное меню
-cv.addEventListener('contextmenu',e=>e.preventDefault());
-
-// ── keyboard ──
-window.addEventListener('keydown',e=>{
-  switch(e.key){
-    case ' ':
-      e.preventDefault();
-      spaceDown=true;
-      cv.style.cursor='grab';
-      break;
-    case 'r':case'R':
-      if(!e.ctrlKey&&!e.metaKey){resetView();sched();}
-      break;
-    case 'g':case'G':
-      showGrid=!showGrid;sched();
-      toast('Grid '+(showGrid?'on':'off'),'inf',700);
-      break;
-    case 'Enter':
-      placeAt(Math.floor(lastBX),Math.floor(lastBY));
-      break;
-    case '+':case'=':
-      zoomAt(cv.width/2,cv.height/2,1);sched();break;
-    case '-':case'_':
-      zoomAt(cv.width/2,cv.height/2,-1);sched();break;
-  }
-});
-window.addEventListener('keyup',e=>{
-  if(e.key===' '){
-    spaceDown=false;
-    cv.style.cursor=panning?'grabbing':'crosshair';
-  }
-});
-
-// ─── help ─────────────────────────────────────────────────
-hbtn.addEventListener('click',e=>{e.stopPropagation();hpEl.classList.toggle('on')});
-document.addEventListener('click',e=>{
-  if(!hpEl.contains(e.target)&&e.target!==hbtn)hpEl.classList.remove('on');
-});
-
-// ─── toasts ───────────────────────────────────────────────
-function toast(msg,type='inf',ms=2800){
-  const t=document.createElement('div');
-  t.className='tt '+type;t.textContent=msg;
-  document.getElementById('tc').appendChild(t);
-  setTimeout(()=>{
-    t.style.transition='opacity .25s';t.style.opacity='0';
-    setTimeout(()=>t.remove(),260);
-  },ms);
-}
-
-// ─── loading ──────────────────────────────────────────────
-function prog(p,msg){lb.style.width=p+'%';if(msg)ls.textContent=msg;}
-
-// ─── canvas resize ────────────────────────────────────────
-/*
-  FIX: canvas ресайзится ТОЛЬКО здесь, НИКОГДА внутри render().
-  Ресайз canvas сбрасывает контекст — если делать это в render(),
-  картинка стирается каждый кадр.
-*/
-function resize(){
-  cv.width=window.innerWidth;
-  cv.height=window.innerHeight;
-  sched();
-}
-window.addEventListener('resize',resize);
-resize(); // initial
-
-// ─── socket ───────────────────────────────────────────────
-const socket=io({transports:['websocket'],maxHttpBufferSize:1e8});
-
-socket.on('connect',()=>{
-  cb.className='ok';cb.textContent='● Connected';
-  prog(20,'Connected — loading board…');
-  toast('Connected!','ok',1500);
-});
-socket.on('disconnect',r=>{
-  cb.className='bad';cb.textContent='● Disconnected';
-  toast('Disconnected: '+r,'err');
-});
-socket.on('connect_error',()=>{
-  cb.className='mid';cb.textContent='● Reconnecting…';
-});
-
-socket.on('board:meta',()=>prog(30,'Receiving board…'));
-
-socket.on('board:load_via_rest',async({url})=>{
-  try{
-    prog(35,'Downloading board…');
-    const res=await fetch(url);
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const buf=await res.arrayBuffer();
-    prog(65,'Decompressing…');
-    const rgb=pako.inflate(new Uint8Array(buf));
-    prog(82,'Rendering…');
-    initBoard();
-    loadFull(rgb);
-    ready=true;
+    bCtx.putImageData(id, 0, 0);
+    ready = true;
     resetView();
-    sched();
-    prog(100,'Ready!');
-    setTimeout(()=>{
-      ldDiv.classList.add('out');
-      setTimeout(()=>ldDiv.style.display='none',450);
-    },300);
-    toast('Board loaded! Click to place pixels 🎨','ok',3000);
-  }catch(err){
-    ls.textContent='Error: '+err.message;
-    toast('Load failed: '+err.message,'err',6000);
+    statusText.textContent = 'Ready 🎨';
+  } catch (e) {
+    console.error(e);
+    statusText.textContent = 'Load Failed';
   }
 });
 
-// чужой пиксель
-socket.on('pixel:update',({x,y,r,g,b})=>{
-  if(!ready)return;
-  px1(x,y,r,g,b);
-  sched();
+socket.on('pixel:update', (data) => {
+  // 👇 ВАЖНО: Проверяем данные перед рисованием
+  if(!ready) return;
+  console.log('[PIXEL UPDATE] Received from server:', data);
+  writePixel(data.x, data.y, data.r, data.g, data.b);
 });
 
-// наш пиксель принят
-socket.on('pixel:accepted',({x,y,r,g,b,cooldownMs})=>{
-  px1(x,y,r,g,b);       // немедленно рисуем — не ждём broadcast
-  startCooldown(cooldownMs);
-  sched();
+socket.on('pixel:accepted', (data) => {
+  if(!ready) return;
+  console.log('[PIXEL ACCEPTED] You placed:', data);
+  writePixel(data.x, data.y, data.r, data.g, data.b);
+  startCooldown(data.cooldownMs);
 });
 
-// отклонён
-socket.on('pixel:rejected',({reason,remaining:rem})=>{
-  if(reason==='cooldown'){
-    toast(`Cooldown: ${(rem/1000).toFixed(1)}s left`,'err',1500);
-    if(!onCD)startCooldown(rem);
-  }else{
-    toast('Rejected: '+reason,'err',3000);
-  }
+socket.on('pixel:rejected', ({reason, remaining}) => {
+  console.log('[PIXEL REJECTED]', reason);
+  const msg = reason === 'cooldown' ? `${(remaining/1000).toFixed(1)}s` : reason;
+  alert(`Can't place: ${msg}`);
 });
 
-socket.on('stats:online',n=>hon.textContent=n);
+// --- INPUT LOGIC ---
+function hexToRgb(h) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h);
+  return r ? {r:parseInt(r[1],16),g:parseInt(r[2],16),b:parseInt(r[3],16)} : {r:255,g:255,b:255};
+}
 
-// ─── init ─────────────────────────────────────────────────
-buildPalette();
-setColor(curColor);
-ctx.fillStyle='#1a1a26';
-ctx.fillRect(0,0,cv.width,cv.height);
+function placePixel(x, y) {
+  if(!ready) { alert('Wait for board load'); return; }
+  if(onCooldown) { alert('Cooldown active'); return; }
+  
+  const rgb = hexToRgb('#7c6ff7'); // Цвет можно сделать динамическим
+  console.log('[SENDING] Emitting pixel:', x, y, rgb.r, rgb.g, rgb.b);
+  socket.emit('pixel:place', { x: Math.floor(x), y: Math.floor(y), ...rgb });
+}
+
+// Click to Place
+canvas.addEventListener('mousedown', e => {
+  const pos = sToB(e.clientX, e.clientY);
+  placePixel(pos.x, pos.y);
+});
+
+// Wheel Zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? -1 : 1);
+  draw();
+});
+
+// Buttons
+placeBtn.addEventListener('click', () => {
+  // Можно добавить ввод координат, если нужно, но click уже достаточен
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if(e.key === '+' || e.key === '=') zoomAt(canvas.width/2, canvas.height/2, 1);
+  if(e.key === '-' ) zoomAt(canvas.width/2, canvas.height/2, -1);
+  if(e.key === 'r' ) resetView();
+});
+
+// Cooldown
+function startCooldown(ms) {
+  onCooldown = true;
+  const end = Date.now() + ms;
+  placeBtn.disabled = true;
+  
+  if(cdTimer) clearInterval(cdTimer);
+  cdTimer = setInterval(() => {
+    const rem = Math.max(0, end - Date.now());
+    placeBtn.textContent = `${(rem/1000).toFixed(1)}s`;
+    if(rem<=0) {
+      clearInterval(cdTimer);
+      onCooldown = false;
+      placeBtn.disabled = false;
+      placeBtn.textContent = 'Place Pixel';
+    }
+  }, 100);
+}
+
+function resetView() {
+  camZoom = 1;
+  camPanX = 0;
+  camPanY = 0;
+}
+
 </script>
 </body>
 </html>
