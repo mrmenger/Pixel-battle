@@ -6,10 +6,12 @@ const { Server } = require('socket.io');
 const path    = require('path');
 const pako    = require('pako');
 
-const CANVAS_SIZE = 4096;
-const COOLDOWN_MS = 3000;
+// ─── Конфигурация ────────────────────────────────────────
+const CANVAS_SIZE  = 2048;  // Было 4096
+const COOLDOWN_MS  = 1000;  // Было 3000
+const CHUNK_SIZE   = 64;
 
-// ─── Буфер доски RGB (~48MB) ─────────────────────────────
+// ─── Буфер доски RGB (~12MB вместо 48MB) ─────────────────
 const board = new Uint8Array(CANVAS_SIZE * CANVAS_SIZE * 3).fill(255);
 
 function getIdx(x, y) { return (y * CANVAS_SIZE + x) * 3; }
@@ -27,20 +29,17 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: { origin: '*' },
-  // ВАЖНО: разрешаем оба транспорта — сначала websocket, fallback polling
   transports: ['websocket', 'polling'],
   pingTimeout:        60000,
   pingInterval:       25000,
   maxHttpBufferSize:  1e8,
-  // Увеличиваем буфер для стабильности
-  perMessageDeflate: false,
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_, res) =>
   res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// Endpoint для загрузки доски — сжимаем pako
+// Endpoint для загрузки доски
 app.get('/api/board', (_, res) => {
   try {
     const compressed = pako.deflate(board, { level: 6 });
@@ -76,13 +75,10 @@ function broadcastOnline() {
 
 // ─── Socket.io подключения ───────────────────────────────
 io.on('connection', (socket) => {
-  const ip = socket.handshake.headers['x-forwarded-for']
-    || socket.handshake.address;
-
-  console.log(`[+] CONNECT  id=${socket.id}  ip=${ip}  total=${io.engine.clientsCount}`);
+  console.log(`[+] CONNECT  id=${socket.id}  total=${io.engine.clientsCount}`);
   broadcastOnline();
 
-  // Отправляем метаданные сразу
+  // Отправляем метаданные
   socket.emit('board:meta', {
     canvasSize:  CANVAS_SIZE,
     cooldownMs:  COOLDOWN_MS,
@@ -128,41 +124,25 @@ io.on('connection', (socket) => {
     setPx(x, y, r, g, b);
     cooldowns.set(socket.id, Date.now());
 
-    console.log(`[OK] PIXEL (${x},${y}) rgb(${r},${g},${b}) from=${socket.id} clients=${io.engine.clientsCount}`);
+    console.log(`[OK] PIXEL (${x},${y}) rgb(${r},${g},${b}) from=${socket.id}`);
 
-    // ── КРИТИЧНО: два отдельных emit ─────────────────
-    // 1. Подтверждение автору
+    // Подтверждение автору
     socket.emit('pixel:accepted', {
       x, y, r, g, b,
       cooldownMs: COOLDOWN_MS,
     });
 
-    // 2. Broadcast всем ОСТАЛЬНЫМ клиентам
-    // socket.broadcast = все кроме отправителя
+    // Broadcast всем ОСТАЛЬНЫМ клиентам
     socket.broadcast.emit('pixel:update', { x, y, r, g, b });
-
-    // Логируем сколько клиентов получат update
-    console.log(`[>>] broadcast pixel:update to ${io.engine.clientsCount - 1} other clients`);
   });
 
   // ── Отключение ────────────────────────────────────
   socket.on('disconnect', (reason) => {
     cooldowns.delete(socket.id);
-    console.log(`[-] DISCONNECT id=${socket.id} reason=${reason} total=${io.engine.clientsCount}`);
+    console.log(`[-] DISCONNECT id=${socket.id} reason=${reason}`);
     broadcastOnline();
   });
-
-  // ── Обработка ошибок сокета ───────────────────────
-  socket.on('error', (err) => {
-    console.error(`[!] SOCKET ERROR id=${socket.id}:`, err);
-  });
 });
-
-// ─── Статистика каждые 30 сек ────────────────────────────
-setInterval(() => {
-  const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
-  console.log(`[STATS] clients=${io.engine.clientsCount} heap=${mem}MB`);
-}, 30_000);
 
 // ─── Старт ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
@@ -172,7 +152,7 @@ server.listen(PORT, () => {
 ║         PIXEL BATTLE  —  READY           ║
 ║  http://localhost:${PORT}                     ║
 ║  Board  : ${CANVAS_SIZE}×${CANVAS_SIZE} pixels              ║
-║  Buffer : ${(board.length/1024/1024).toFixed(0)} MB RAM                    ║
-║  CD     : ${COOLDOWN_MS}ms                         ║
+║  Buffer : ${(board.length/1024/1024).toFixed(1)} MB RAM                   ║
+║  Cooldown : ${COOLDOWN_MS}ms (1 секунда)         ║
 ╚══════════════════════════════════════════╝`);
 });
