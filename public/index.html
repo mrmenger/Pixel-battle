@@ -49,7 +49,6 @@
       display:flex;align-items:center;
       gap:10px;padding:0 14px;
       z-index:200;
-      /* pointer-events:none чтобы не блокировать клики на canvas */
       pointer-events:none;
     }
     #bar>*{pointer-events:auto}
@@ -85,6 +84,44 @@
     @keyframes dp{
       0%,100%{opacity:1;transform:scale(1)}
       50%{opacity:.4;transform:scale(.7)}
+    }
+
+    /* ── Cooldown ring (ПОДНИМАЕМ ВЫШЕ) ────────────────────── */
+    #cdwrap{
+      position:fixed;
+      top: 120px;  /* Подняли выше от низа */
+      left:50%;
+      transform:translateX(-50%);
+      display:flex;flex-direction:column;
+      align-items:center;gap:8px;
+      z-index:201;
+      opacity:0;pointer-events:none;
+      transition:opacity .2s;
+    }
+    #cdwrap.show{opacity:1}
+
+    #cdr{position:relative;width:70px;height:70px} /* Увеличили */
+    #cdr svg{width:70px;height:70px;transform:rotate(-90deg)}
+    #cdr .tr{fill:none;stroke:rgba(255,255,255,.07);stroke-width:5}
+    #cdr .ar{
+      fill:none;stroke:var(--accent);
+      stroke-width:6; /* Толще */
+      stroke-linecap:round;
+      stroke-dasharray:178; /* 2π×28.5 */
+      stroke-dashoffset:178;
+    }
+    #cdn{
+      position:absolute;inset:0;
+      display:flex;align-items:center;justify-content:center;
+      font-size:1.1rem; /* Крупнее */
+      font-weight:800;
+      color:var(--accent2);
+      text-shadow:0 0 10px rgba(124,111,247,0.5);
+    }
+    #cdl{
+      font-size:.75rem;color:var(--accent2);
+      letter-spacing:.08em;text-transform:uppercase;
+      font-weight:600;
     }
 
     /* ── Bottom panel ───────────────────────────────── */
@@ -160,37 +197,6 @@
     #pbtn:disabled{
       background:#2a2a38;color:var(--dim);
       cursor:not-allowed;
-    }
-
-    /* ── Cooldown ring ──────────────────────────────── */
-    #cdwrap{
-      position:fixed;bottom:90px;left:50%;
-      transform:translateX(-50%);
-      display:flex;flex-direction:column;
-      align-items:center;gap:5px;
-      z-index:201;
-      opacity:0;pointer-events:none;
-      transition:opacity .2s;
-    }
-    #cdwrap.show{opacity:1}
-
-    #cdr{position:relative;width:56px;height:56px}
-    #cdr svg{width:56px;height:56px;transform:rotate(-90deg)}
-    #cdr .tr{fill:none;stroke:rgba(255,255,255,.07);stroke-width:5}
-    #cdr .ar{
-      fill:none;stroke:var(--accent);
-      stroke-width:5;stroke-linecap:round;
-      stroke-dasharray:144.51;
-      stroke-dashoffset:144.51;
-    }
-    #cdn{
-      position:absolute;inset:0;
-      display:flex;align-items:center;justify-content:center;
-      font-size:.84rem;font-weight:700;color:var(--accent2);
-    }
-    #cdl{
-      font-size:.65rem;color:var(--dim);
-      letter-spacing:.06em;text-transform:uppercase;
     }
 
     /* ── Minimap ────────────────────────────────────── */
@@ -315,6 +321,7 @@
   <div class="pill">X <b id="hx">—</b></div>
   <div class="pill">Y <b id="hy">—</b></div>
   <div class="pill">Zoom <b id="hz">100%</b></div>
+  <div class="pill">CD <b id="hcd">1.0s</b></div>
   <div id="sp"></div>
   <div id="ol">
     <div class="dot"></div>
@@ -322,22 +329,22 @@
   </div>
 </div>
 
-<!-- Canvas (ЕДИНСТВЕННЫЙ canvas, никогда не ресайзится в render) -->
+<!-- Canvas -->
 <canvas id="cv"></canvas>
 
 <!-- Hover ghost -->
 <div id="gh"></div>
 
-<!-- Cooldown ring -->
+<!-- Cooldown ring (ПОДНЯЛИ ВЫШЕ) -->
 <div id="cdwrap">
   <div id="cdr">
-    <svg viewBox="0 0 56 56">
-      <circle class="tr" cx="28" cy="28" r="23"/>
-      <circle class="ar" cx="28" cy="28" r="23" id="cdarc"/>
+    <svg viewBox="0 0 70 70">
+      <circle class="tr" cx="35" cy="35" r="28.5"/>
+      <circle class="ar" cx="35" cy="35" r="28.5" id="cdarc"/>
     </svg>
-    <div id="cdn">3.0</div>
+    <div id="cdn">1.0</div>
   </div>
-  <div id="cdl">cooldown</div>
+  <div id="cdl">COOLDOWN</div>
 </div>
 
 <!-- Bottom panel -->
@@ -380,25 +387,18 @@
 'use strict';
 
 /* ═══════════════════════════════════════════════════════════
-   PIXEL BATTLE — полная версия
-   Исправления:
-   1. socket.broadcast.emit гарантированно шлёт всем остальным
-   2. транспорты websocket + polling (fallback)
-   3. canvas ресайзится только в resize(), никогда в render()
-   4. cooldown через setInterval (не rAF)
-   5. левый клик СРАЗУ ставит пиксель
-   6. ghost-курсор точно совпадает с пикселем доски
+   PIXEL BATTLE — 2048x2048, задержка 1 секунда
 ═══════════════════════════════════════════════════════════ */
 
 // ─── Константы ──────────────────────────────────────────
-const BSIZE    = 4096;
-const CD_MS    = 3000;
-const MIN_ZOOM = 0.025;
+const BSIZE    = 2048;  // Было 4096
+const CD_MS    = 1000;  // Было 3000 (1 секунда)
+const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 48;
 const ZF       = 0.15;
 const GRID_Z   = 6;
 const MM_PX    = 120;
-const CD_CIRC  = 2 * Math.PI * 23; // ≈144.51 (r=23)
+const CD_CIRC  = 2 * Math.PI * 28.5; // ≈ 179.07 (r=28.5)
 
 // ─── Палитра ────────────────────────────────────────────
 const PALETTE = [
@@ -419,6 +419,7 @@ const ls      = document.getElementById('ls');
 const hx      = document.getElementById('hx');
 const hy      = document.getElementById('hy');
 const hz      = document.getElementById('hz');
+const hcd     = document.getElementById('hcd');
 const hon     = document.getElementById('hon');
 const pbtn    = document.getElementById('pbtn');
 const cpInput = document.getElementById('cp');
@@ -483,7 +484,6 @@ function initBoard() {
   bRGB = new Uint8Array(BSIZE * BSIZE * 3).fill(255);
 }
 
-// Рисует ОДИН пиксель на оффскрин буфере
 function writePixel(x, y, r, g, b) {
   if (x < 0 || x >= BSIZE || y < 0 || y >= BSIZE) return;
   const i = (y * BSIZE + x) * 3;
@@ -494,7 +494,6 @@ function writePixel(x, y, r, g, b) {
   sched();
 }
 
-// Загружает всю доску из RGB массива
 function loadFull(rgb) {
   bRGB = rgb;
   const id   = bCtx.createImageData(BSIZE, BSIZE);
@@ -552,21 +551,26 @@ cpInput.addEventListener('input', () => {
   document.querySelectorAll('.sw').forEach(s => s.classList.remove('on'));
 });
 
-// ─── Cooldown ────────────────────────────────────────────
+// ─── Cooldown (1 секунда) ────────────────────────────────
 function startCooldown(ms) {
-  // Если уже идёт — останавливаем старый
   if (cdTick) { clearInterval(cdTick); cdTick = null; }
 
   onCD  = true;
   cdEnd = Date.now() + ms;
   pbtn.disabled = true;
   cdWrap.classList.add('show');
+  
+  // Обновляем счетчик в верхней панели
+  updateTopCooldown();
 
   function tick() {
     const rem = Math.max(0, cdEnd - Date.now());
     const frac = rem / CD_MS;
     cdArc.style.strokeDashoffset = (CD_CIRC * (1 - frac)).toFixed(3);
     cdNum.textContent = (rem / 1000).toFixed(1);
+    
+    // Обновляем счетчик вверху
+    updateTopCooldown();
 
     if (rem <= 0) {
       clearInterval(cdTick);
@@ -576,9 +580,17 @@ function startCooldown(ms) {
       cdWrap.classList.remove('show');
       cdArc.style.strokeDashoffset = CD_CIRC;
       cdNum.textContent = '0.0';
-      toast('Ready! Click to place 🎨', 'ok', 1500);
+      hcd.textContent = '1.0s';
+      toast('Ready!', 'ok', 800);
     }
   }
+  
+  function updateTopCooldown() {
+    const rem = Math.max(0, cdEnd - Date.now());
+    hcd.textContent = (rem/1000).toFixed(1) + 's';
+    hcd.style.color = rem > 0 ? 'var(--accent)' : 'var(--txt)';
+  }
+  
   tick();
   cdTick = setInterval(tick, 50);
 }
@@ -594,7 +606,7 @@ function hexToRgb(h) {
 function placeAt(bx, by) {
   if (!ready) { toast('Board loading…', 'inf', 1500); return; }
   if (onCD)   {
-    toast(`Cooldown: ${((cdEnd - Date.now()) / 1000).toFixed(1)}s`, 'err', 900);
+    toast(`Cooldown: ${((cdEnd - Date.now()) / 1000).toFixed(1)}s`, 'err', 800);
     return;
   }
   if (bx < 0 || bx >= BSIZE || by < 0 || by >= BSIZE) return;
@@ -617,19 +629,16 @@ function doRender() {
   rafPending = false;
   const W = cv.width, H = cv.height;
 
-  // Фон
   ctx.fillStyle = '#1a1a26';
   ctx.fillRect(0, 0, W, H);
 
   if (!ready) return;
 
-  // Трансформация камеры
   ctx.save();
   ctx.setTransform(cam.z, 0, 0, cam.z, cam.x, cam.y);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(bOC, 0, 0);
 
-  // Сетка (в координатах доски)
   if (showGrid && cam.z >= GRID_Z) {
     const x0 = Math.max(0, Math.floor(-cam.x / cam.z));
     const y0 = Math.max(0, Math.floor(-cam.y / cam.z));
@@ -645,7 +654,6 @@ function doRender() {
 
   ctx.restore();
 
-  // Минимап
   if (mmDirty) { drawMM(); mmDirty = false; }
   drawMMvp(W, H);
 }
@@ -683,8 +691,6 @@ document.getElementById('mmwrap').addEventListener('click', e => {
 });
 
 // ─── Input ───────────────────────────────────────────────
-
-// Canvas ресайзится ТОЛЬКО здесь — НИКОГДА внутри render()
 function resize() {
   cv.width  = window.innerWidth;
   cv.height = window.innerHeight;
@@ -693,16 +699,12 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Wheel = zoom
 cv.addEventListener('wheel', e => {
   e.preventDefault();
   zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1 : -1);
   sched();
 }, { passive: false });
 
-// Mousedown
-// LEFT (button=0)  → СРАЗУ ставит пиксель
-// RIGHT (button=2) / MIDDLE / SPACE → панорамирование
 cv.addEventListener('mousedown', e => {
   if (e.button === 2 || e.button === 1 || spDown) {
     e.preventDefault();
@@ -718,7 +720,6 @@ cv.addEventListener('mousedown', e => {
   }
 });
 
-// Mousemove
 window.addEventListener('mousemove', e => {
   if (panning) {
     cam.x += e.clientX - lmx;
@@ -739,7 +740,6 @@ window.addEventListener('mousemove', e => {
   hy.textContent = inside ? by : '—';
 
   if (inside) {
-    // Ghost: точно соответствует размеру одного пикселя доски на экране
     const tl  = b2s(bx, by);
     const sz  = Math.max(1, cam.z);
     gh.style.display = 'block';
@@ -761,7 +761,6 @@ window.addEventListener('mouseup', () => {
 
 cv.addEventListener('contextmenu', e => e.preventDefault());
 
-// Keyboard
 window.addEventListener('keydown', e => {
   switch (e.key) {
     case ' ':
@@ -793,7 +792,6 @@ window.addEventListener('keyup', e => {
   }
 });
 
-// Help
 hbtn.addEventListener('click', e => {
   e.stopPropagation();
   hpanel.classList.toggle('on');
@@ -803,11 +801,10 @@ document.addEventListener('click', e => {
     hpanel.classList.remove('on');
 });
 
-// Place button
 pbtn.addEventListener('click', () => placeAt(lastBX, lastBY));
 
 // ─── Toasts ──────────────────────────────────────────────
-function toast(msg, type = 'inf', ms = 2800) {
+function toast(msg, type = 'inf', ms = 1800) {
   const t = document.createElement('div');
   t.className = 'tt ' + type;
   t.textContent = msg;
@@ -826,7 +823,6 @@ function prog(p, msg) {
 }
 
 // ─── Socket.io ───────────────────────────────────────────
-// ВАЖНО: transports должны совпадать с сервером
 const socket = io({
   transports: ['websocket', 'polling'],
   reconnection:        true,
@@ -840,7 +836,7 @@ socket.on('connect', () => {
   connBadge.className   = 'ok';
   connBadge.textContent = '● Connected';
   prog(20, 'Connected — loading board…');
-  toast('Connected!', 'ok', 1500);
+  toast('Connected!', 'ok', 1200);
 });
 
 socket.on('disconnect', reason => {
@@ -858,30 +854,23 @@ socket.on('connect_error', err => {
 
 socket.on('reconnect', attempt => {
   console.log('[Socket] Reconnected after', attempt, 'attempts');
-  toast('Reconnected!', 'ok', 2000);
+  toast('Reconnected!', 'ok', 1200);
 });
 
-// Получили метаданные
 socket.on('board:meta', data => {
   console.log('[Meta]', data);
   prog(30, 'Received metadata…');
 });
 
-// Загружаем доску через HTTP
 socket.on('board:load_via_rest', async ({ url }) => {
   try {
     prog(35, 'Downloading board…');
-    console.log('[Board] Fetching from', url);
-
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
 
     const buf = await res.arrayBuffer();
     prog(65, 'Decompressing…');
-    console.log('[Board] Downloaded', buf.byteLength, 'bytes compressed');
-
     const rgb = pako.inflate(new Uint8Array(buf));
-    console.log('[Board] Decompressed to', rgb.length, 'bytes RGB');
 
     prog(82, 'Rendering…');
     initBoard();
@@ -897,46 +886,36 @@ socket.on('board:load_via_rest', async ({ url }) => {
       setTimeout(() => ldDiv.style.display = 'none', 450);
     }, 300);
 
-    toast('Board loaded! Click anywhere to place 🎨', 'ok', 3000);
+    toast('Board loaded! 1s cooldown', 'ok', 2000);
   } catch (err) {
     console.error('[Board] Load failed:', err);
     ls.textContent = 'Error: ' + err.message;
-    toast('Load failed: ' + err.message, 'err', 6000);
+    toast('Load failed: ' + err.message, 'err', 4000);
   }
 });
 
-// ── КРИТИЧНО: получение чужого пикселя ───────────────────
 socket.on('pixel:update', ({ x, y, r, g, b }) => {
-  // Этот event приходит от socket.broadcast.emit на сервере
-  // То есть его получают ВСЕ кроме того кто поставил
   console.log(`[RECV] pixel:update (${x},${y}) rgb(${r},${g},${b})`);
-  if (!ready) {
-    console.warn('[RECV] Board not ready, skipping pixel');
-    return;
-  }
+  if (!ready) return;
   writePixel(x, y, r, g, b);
 });
 
-// ── Наш пиксель принят ───────────────────────────────────
 socket.on('pixel:accepted', ({ x, y, r, g, b, cooldownMs }) => {
   console.log(`[ACK] pixel:accepted (${x},${y})`);
-  // Рисуем немедленно не дожидаясь broadcast
   writePixel(x, y, r, g, b);
   startCooldown(cooldownMs);
 });
 
-// ── Отклонён ─────────────────────────────────────────────
 socket.on('pixel:rejected', ({ reason, remaining }) => {
   console.log('[REJ] pixel:rejected reason=', reason);
   if (reason === 'cooldown') {
-    toast(`Cooldown: ${(remaining / 1000).toFixed(1)}s`, 'err', 1500);
+    toast(`Wait ${(remaining / 1000).toFixed(1)}s`, 'err', 1200);
     if (!onCD) startCooldown(remaining);
   } else {
-    toast('Rejected: ' + reason, 'err', 3000);
+    toast('Rejected: ' + reason, 'err', 2000);
   }
 });
 
-// ── Онлайн счётчик ───────────────────────────────────────
 socket.on('stats:online', n => {
   hon.textContent = n;
 });
@@ -945,11 +924,10 @@ socket.on('stats:online', n => {
 buildPalette();
 setColor(color);
 
-// Тёмный фон пока грузимся
 ctx.fillStyle = '#1a1a26';
 ctx.fillRect(0, 0, cv.width, cv.height);
 
-console.log('🎨 Pixel Battle initialized');
+console.log('🎨 Pixel Battle 2048x2048 • 1s cooldown');
 </script>
 </body>
 </html>
